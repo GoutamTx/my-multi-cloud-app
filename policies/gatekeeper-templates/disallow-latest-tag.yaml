@@ -18,7 +18,7 @@ spec:
             message:
               type: string
   targets:
-    - target: status.namespaces
+    - target: admission.k8s.gatekeeper.sh
       rego: |
         package k8sdisallowlatesttag
 
