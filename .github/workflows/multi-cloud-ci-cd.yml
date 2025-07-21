@@ -165,7 +165,7 @@ jobs:
 
     - name: Apply Centralized OPA Gatekeeper ConstraintTemplate to AKS
       run: |
-        az aks get-credentials --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} --name ${{ secrets.AKS_CLUSTER_NAME }} --overwrite-kubeconfig
+        az aks get-credentials --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} --name ${{ secrets.AKS_CLUSTER_NAME }} --overwrite-existing
         echo "Applying OPA ConstraintTemplate to AKS cluster..."
         yq e 'select(documentIndex == 0)' policies/gatekeeper-templates/disallow-latest-tag.yaml | kubectl apply -f - --server-side --force-conflicts -o name
         echo "Waiting for ConstraintTemplate to be fully registered..."
@@ -173,7 +173,7 @@ jobs:
 
     - name: Apply Centralized OPA Gatekeeper Constraint to AKS
       run: |
-        az aks get-credentials --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} --name ${{ secrets.AKS_CLUSTER_NAME }} --overwrite-kubeconfig
+        az aks get-credentials --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} --name ${{ secrets.AKS_CLUSTER_NAME }} --overwrite-existing
         echo "Applying OPA Constraint to AKS cluster..."
         yq e 'select(documentIndex == 1)' policies/gatekeeper-templates/disallow-latest-tag.yaml | kubectl apply -f - --server-side --force-conflicts -o name
         echo "OPA policies applied to AKS."
