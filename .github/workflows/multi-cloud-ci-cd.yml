@@ -35,10 +35,9 @@ jobs:
         push: true
         tags: |
           ${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}
-          ${{ env.DOCKER_IMAGE_NAME }}:latest # Push 'latest' only on main/release
+          ${{ env.DOCKER_IMAGE_NAME }}:latest
         build-args: |
-          # No build args needed for this simple project, but good to know for future
-        cache-from: type=gha # Cache Docker layers for faster builds
+        cache-from: type=gha
         cache-to: type=gha,mode=max
     
     - name: Verify pushed image (optional)
