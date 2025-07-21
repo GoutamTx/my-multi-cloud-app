@@ -140,24 +140,40 @@ jobs:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_REGION }}
+    - name: Apply Centralized OPA Gatekeeper ConstraintTemplate to EKS
+      run: |
+        aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+        echo "Applying OPA ConstraintTemplate to EKS cluster..."
+        # Apply only the ConstraintTemplate (first document in the YAML file)
+        # Using yq to extract just the first document for precision
+        yq e 'select(documentIndex == 0)' policies/gatekeeper-templates/disallow-latest-tag.yaml | kubectl apply -f - --server-side --force-conflicts -o name
+        echo "Waiting for ConstraintTemplate to be fully registered..."
+        sleep 15 # Give Kubernetes API server time to register the CRD (10-15 seconds is usually enough)
+
+    - name: Apply Centralized OPA Gatekeeper Constraint to EKS
+      run: |
+        aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+        echo "Applying OPA Constraint to EKS cluster..."
+        # Apply only the Constraint (second document in the YAML file)
+        yq e 'select(documentIndex == 1)' policies/gatekeeper-templates/disallow-latest-tag.yaml | kubectl apply -f - --server-side --force-conflicts -o name
+        echo "OPA policies applied to EKS."
 
     - name: Configure Azure Credentials for OPA Policy Application to AKS
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Apply Centralized OPA Gatekeeper Policy to EKS
+    - name: Apply Centralized OPA Gatekeeper ConstraintTemplate to AKS
       run: |
-        # Set up kubectl context for EKS
-        aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
-        echo "Applying OPA policies to EKS cluster..."
-        kubectl apply -f policies/gatekeeper-templates/disallow-latest-tag.yaml
-        echo "OPA policies applied to EKS."
-
-    - name: Apply Centralized OPA Gatekeeper Policy to AKS
-      run: |
-        # Set up kubectl context for AKS
         az aks get-credentials --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} --name ${{ secrets.AKS_CLUSTER_NAME }} --overwrite-kubeconfig
-        echo "Applying OPA policies to AKS cluster..."
-        kubectl apply -f policies/gatekeeper-templates/disallow-latest-tag.yaml
+        echo "Applying OPA ConstraintTemplate to AKS cluster..."
+        yq e 'select(documentIndex == 0)' policies/gatekeeper-templates/disallow-latest-tag.yaml | kubectl apply -f - --server-side --force-conflicts -o name
+        echo "Waiting for ConstraintTemplate to be fully registered..."
+        sleep 15 # Give Kubernetes API server time to register the CRD
+
+    - name: Apply Centralized OPA Gatekeeper Constraint to AKS
+      run: |
+        az aks get-credentials --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} --name ${{ secrets.AKS_CLUSTER_NAME }} --overwrite-kubeconfig
+        echo "Applying OPA Constraint to AKS cluster..."
+        yq e 'select(documentIndex == 1)' policies/gatekeeper-templates/disallow-latest-tag.yaml | kubectl apply -f - --server-side --force-conflicts -o name
         echo "OPA policies applied to AKS."
