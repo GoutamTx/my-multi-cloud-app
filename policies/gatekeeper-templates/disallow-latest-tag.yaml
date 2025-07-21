@@ -1,0 +1,57 @@
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: k8sdisallowlatesttag
+  annotations:
+    description: |
+      Requires container images to not use the `latest` tag.
+      Using `:latest` makes it hard to track what version is running and
+      prevents rollbacks to a specific working version.
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sDisallowLatestTag
+      validation:
+        openAPIV3Schema:
+          properties:
+            message:
+              type: string
+  targets:
+    - target: status.namespaces
+      rego: |
+        package k8sdisallowlatesttag
+
+        # Define a violation if an image uses ":latest"
+        violation[{"msg": msg}] {
+          # Check for Pods
+          input.review.object.kind == "Pod"
+          # Iterate over all containers (regular and initContainers)
+          container := input.review.object.spec.containers[_]
+          image := container.image
+          # Check if the image ends with ":latest"
+          endswith(image, ":latest")
+          msg := sprintf("Container image '%v' uses the 'latest' tag, which is disallowed.", [image])
+        }
+
+        violation[{"msg": msg}] {
+          # Check for Pods (initContainers)
+          input.review.object.kind == "Pod"
+          initContainer := input.review.object.spec.initContainers[_]
+          image := initContainer.image
+          endswith(image, ":latest")
+          msg := sprintf("Init container image '%v' uses the 'latest' tag, which is disallowed.", [image])
+        }
+
+---
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sDisallowLatestTag
+metadata:
+  name: pod-must-not-use-latest-tag
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+      - apiGroups: ["apps"] # Also apply to Deployments, DaemonSets, etc.
+        kinds: ["Deployment", "ReplicaSet", "StatefulSet", "DaemonSet"]

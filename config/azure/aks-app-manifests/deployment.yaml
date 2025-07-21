@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: multi-cloud-app-aks
+  labels:
+    app: multi-cloud-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: multi-cloud-app
+  template:
+    metadata:
+      labels:
+        app: multi-cloud-app
+    spec:
+      containers:
+      - name: web
+        # This is the placeholder that deploy-aks.sh will replace
+        image: __DOCKER_IMAGE_PLACEHOLDER__
+        ports:
+        - containerPort: 80

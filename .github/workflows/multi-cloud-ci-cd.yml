@@ -1,0 +1,164 @@
+name: Multi-Cloud CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - feature/*
+  release:
+    types: [published] # Trigger on new GitHub Releases
+
+env:
+  DOCKER_IMAGE_NAME: ${{ secrets.DOCKER_HUB_USERNAME }}/my-multi-cloud-app # Your Docker Hub repo name
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_HUB_USERNAME }}
+        password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+    - name: Build and push Docker image
+      id: docker_build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: |
+          ${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}
+          ${{ env.DOCKER_IMAGE_NAME }}:latest # Push 'latest' only on main/release
+        build-args: |
+          # No build args needed for this simple project, but good to know for future
+        cache-from: type=gha # Cache Docker layers for faster builds
+        cache-to: type=gha,mode=max
+    
+    - name: Verify pushed image (optional)
+      run: echo "Docker image ${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }} pushed successfully."
+
+  deploy:
+    needs: build-and-test # This job depends on build-and-test completing successfully
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [eks, aks] # Target platforms
+
+    environment: # Use environments for better access control and secrets management
+      name: production-${{ matrix.platform }} # e.g., production-eks, production-aks
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # ------------------ EKS Deployment Steps ------------------
+    - name: Configure AWS Credentials
+      if: matrix.platform == 'eks' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }} # e.g., us-east-1
+
+    - name: Deploy to EKS
+      if: matrix.platform == 'eks' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+      run: |
+        echo "Initiating deployment to AWS EKS..."
+        # Pass the Docker image tag to the deployment script
+        ./config/aws/deploy-eks.sh "${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}"
+
+    # ------------------ AKS Deployment Steps ------------------
+    - name: Azure Login
+      if: matrix.platform == 'aks' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }} # Azure Service Principal JSON
+
+    - name: Deploy to AKS
+      if: matrix.platform == 'aks' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+      run: |
+        echo "Initiating deployment to Azure AKS..."
+        ./config/azure/deploy-aks.sh "${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}"
+
+  platform-security-checks:
+    needs: deploy # Run security checks after deployment
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [eks, aks]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # ------------------ EKS Security Checks ------------------
+    - name: Configure AWS Credentials for EKS Security Checks
+      if: matrix.platform == 'eks' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Run EKS Specific Security Checks
+      if: matrix.platform == 'eks' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+      run: |
+        echo "Running AWS EKS specific security checks..."
+        ./config/aws/security-eks.sh
+
+    # ------------------ AKS Security Checks ------------------
+    - name: Azure Login for AKS Security Checks
+      if: matrix.platform == 'aks' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Run AKS Specific Security Checks
+      if: matrix.platform == 'aks' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+      run: |
+        echo "Running Azure AKS specific security checks..."
+        ./config/azure/security-aks.sh
+
+  centralized-policy-enforcement:
+    needs: platform-security-checks # Run policy enforcement after platform-specific checks
+    runs-on: ubuntu-latest
+    # This job will run once to apply policies to both clusters.
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS Credentials for OPA Policy Application to EKS
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Configure Azure Credentials for OPA Policy Application to AKS
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Apply Centralized OPA Gatekeeper Policy to EKS
+      run: |
+        # Set up kubectl context for EKS
+        aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+        echo "Applying OPA policies to EKS cluster..."
+        kubectl apply -f policies/gatekeeper-templates/disallow-latest-tag.yaml
+        echo "OPA policies applied to EKS."
+
+    - name: Apply Centralized OPA Gatekeeper Policy to AKS
+      run: |
+        # Set up kubectl context for AKS
+        az aks get-credentials --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} --name ${{ secrets.AKS_CLUSTER_NAME }} --overwrite-kubeconfig
+        echo "Applying OPA policies to AKS cluster..."
+        kubectl apply -f policies/gatekeeper-templates/disallow-latest-tag.yaml
+        echo "OPA policies applied to AKS."

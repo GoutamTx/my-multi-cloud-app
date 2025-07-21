@@ -1,0 +1,6 @@
+.git
+.github
+config/
+policies/
+node_modules/
+npm-debug.log
