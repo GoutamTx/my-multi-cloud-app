@@ -1,0 +1,54 @@
+Step 1:
+Created EKS and AKS with the use of cli
+
+AWS:
+eksctl create cluster \
+  --name my-eks-cluster \
+  --version 1.29 \
+  --region us-east-1 \
+  --nodegroup-name standard-workers \
+  --node-type t2.micro \
+  --nodes 4 \
+  --nodes-min 1 \
+  --nodes-max 4 \
+  --managed
+
+EKS:
+az group create --name myResourceGroup --location eastus               #created the resource group first
+
+az aks create \
+  --resource-group myResourceGroup \
+  --name myAKSCluster \
+  --node-count 4 \
+  --generate-ssh-keys \
+  --node-vm-size Standard_B2S
+
+
+Step 2:
+
+Created a simple project
+Wrote the Dockerfile
+Build and pushed it to DockerHub
+(Through github action workflow)
+Verified it.
+
+
+Step 3:
+
+Wrote the deployment, service file for both clouds.
+Also wrote the security check file for both clouds.
+
+Step 4:
+Deployed it to AKS and EKS through github action workflow and used matrix for use of both clouds.
+
+Step 5:
+Wrote the gatekeeper policy through which we disallow the use of tag LATEST.
+
+Step 6:
+
+initialized a git repo
+Pushed our code to the repo (git push origin main)
+
+Step 7:
+
+Waited for the pipeline to execute all the stages.
